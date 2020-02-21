@@ -37,7 +37,9 @@ __NOTE__: We automatically generate the MNIST-Bags dataset from original MNIST d
 
 `src/*`: We implement the uniform interface for various datasets introduced above. You can specify the dataset by setting hte parameter `--dataset`and simply run the main.py as follows:
 <br>
+<br>
 `python main.py --dataset cc`
+<br>
 <br>
 A part of settable parameters are listed as follows:
 
