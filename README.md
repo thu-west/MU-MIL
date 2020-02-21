@@ -36,7 +36,9 @@ How to Use
 __NOTE__: We automatically generate the MNIST-Bags dataset from original MNIST data in mnist_dataloader. It can handle any bag length without the dataset becoming unbalanced. It is most probably not the most efficient way to create the bags. Furthermore it is only test for the case that the target number is ‘9’.
 
 `src/*`: We implement the uniform interface for various datasets introduced above. You can specify the dataset by setting hte parameter `--dataset`and simply run the main.py as follows:
+<br>
 `python main.py --dataset cc`
+<br>
 A part of settable parameters are listed as follows:
 
 Parameter | Options | Usage
