@@ -33,7 +33,7 @@ How to Use
 `classic_src/*`: Evaluate our model specifically on the MUSK1, MUSK2, Fox, Elephant, Tiger datasets.
 
 `mnist_src/*`: Evaluate our model specifically on the MNIST-Bags dataset. 
-__NOTE__: We automatically generate the MNIST-Bags dataset from original MNIST data in mnist_dataloader. It can handle any bag length without the dataset becoming unbalanced. It is most probably not the most efficient way to create the bags. Furthermore it is only test for the case that the target number is ‘9’.
+__NOTE__: The codes will automatically download the original MNIST dataset and generate the MNIST-Bags dataset. It can handle any bag length without the dataset becoming unbalanced. It is most probably not the most efficient way to create the bags. Furthermore it is only test for the case that the target number is ‘9’.
 
 `src/*`: We implement the uniform interface for various datasets introduced above. You can specify the dataset by setting hte parameter `--dataset`and simply run the main.py as follows:
 <br>
