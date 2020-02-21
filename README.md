@@ -41,7 +41,7 @@ __NOTE__: The codes will automatically download the original MNIST dataset and g
 `python main.py --dataset cc`
 <br>
 <br>
-A part of settable parameters are listed as follows:
+The program will print the AUC, Precision, Recall, Accuracy, Skrewness, dloss of the trained model. Part of settable parameters are listed as follows:
 
 Parameter | Options | Usage
 --------- | ------- | -----
