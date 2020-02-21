@@ -42,7 +42,7 @@ A part of settable parameters are listed as follows:
 Parameter | Options | Usage
 --------- | ------- | -----
 --dataset | [cc, bc, mb, musk1, musk2, fox, tiger, elephant] | Specify the dataset for evaluation
---attention | [[att, mu, datt, mhatt]] | Specify the attention type for model and compare between each other
+--attention | [att, mu, datt, mhatt] | Specify the attention type 
 --epochs | | Specify the epoch nums for training
 --lr | | Specify the learning rate
 --dim | | Sepcify the dimension for the attention
