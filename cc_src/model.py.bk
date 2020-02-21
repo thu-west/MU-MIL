@@ -1,0 +1,319 @@
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from sklearn import metrics
+
+class Attention(nn.Module):
+    def __init__(self):
+        super(Attention, self).__init__()
+        self.L = 512
+        self.D = 128
+        self.K = 1
+
+        self.feature_extractor = Encoder(self.L)
+
+        self.attention = nn.Sequential(
+            nn.Linear(self.L, self.D),
+            nn.Tanh(),
+            nn.Linear(self.D, self.K)
+        )
+
+        self.classifier = nn.Sequential(
+            nn.Linear(self.L*self.K, 1),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        # x = x.squeeze(0)
+
+        H = self.feature_extractor(x)
+
+        A = self.attention(H)  # NxK
+        A = torch.transpose(A, 1, 0)  # KxN
+        A = F.softmax(A, dim=1)  # softmax over N
+
+        M = torch.mm(A, H)  # KxL
+
+        Y_prob = self.classifier(M)
+        Y_hat = torch.ge(Y_prob, 0.5).float()
+
+        return Y_prob, Y_hat, A
+
+    # AUXILIARY METHODS
+    def calculate_classification_error(self, X, Y):
+        Y = Y.float()
+        Y_prob, Y_hat, _ = self.forward(X)
+        error = 1. - Y_hat.eq(Y).cpu().float().mean().data
+
+        return error, Y_prob, Y_hat
+
+    def calculate_objective(self, X, Y):
+        Y = Y.float()
+        Y_prob, _, A = self.forward(X)
+        Y_prob = torch.clamp(Y_prob, min=1e-5, max=1. - 1e-5)
+        neg_log_likelihood = -1. * (Y * torch.log(Y_prob) + (1. - Y) * torch.log(1. - Y_prob))  # negative log bernoulli
+
+        return neg_log_likelihood, A, None
+
+
+class Encoder(nn.Module):
+    def __init__(self, L=500):
+        """
+        LeNet5, implemented by ICML 2018, applied to MNIST dataset
+        :param L: the dimension of the latent feature vector
+        """
+        super(Encoder, self).__init__()
+        self.L = L
+        self.part1 = nn.Sequential(
+            nn.Conv2d(3, 36, kernel_size=4),
+            nn.ReLU(),
+            nn.MaxPool2d(2, stride=2),
+            nn.Conv2d(36, 48, kernel_size=3),
+            nn.ReLU(),
+            nn.MaxPool2d(2, stride=2)
+        )
+        self.part2 = nn.Sequential(
+            nn.Linear(48 * 5 * 5, 512),
+            nn.ReLU(),
+            nn.Dropout(),
+            nn.Linear(512, 512),
+            nn.ReLU(),
+            nn.Dropout()
+        )
+
+    def forward(self, x):
+        # x = x.squeeze(0)
+        H = self.part1(x)
+        H = H.view(-1, 48 * 5 * 5)
+        H = self.part2(H)
+        return H
+
+
+class HAttention(nn.Module):
+    def __init__(self, D=128, K=1, L=512):
+        """
+        attention model for multi instance learning
+        :param D: the dimension of embedding that one instance will be transformed into
+        :param K: the number of classification planes
+        :param L: the dimension of the latent feature vector
+        """
+        super(HAttention, self).__init__()
+        self.D = D
+        self.K = K
+        self.L = L
+        self.attention_emb = nn.Sequential(               # input N x L
+            nn.Linear(self.L, self.D), nn.Tanh()          # Embedding N x D
+        )
+        self.attention_trans = nn.Linear(self.D, self.K)  # scores N x K
+
+    def forward(self, x):
+        """
+        forward feed network
+        :param x: the stacked bags N^*
+        :param delimeter: the location that which bag ends N
+        :return: the stacked bag representation N and the weights N^*
+        """
+        V = self.attention_emb(x)           # operates on the embedding spaces
+        V = self.attention_trans(V)         # score vector N^*s x K
+        V = torch.transpose(V, 1, 0)        # c
+
+        score = F.softmax(V, 1)  # K x N^* bag softmax
+        if self.K is 1:                     # use score directly
+            A = score
+        else:
+            u = torch.sum(torch.mul(score, V), dim=1, keepdim=True).view(1, -1)
+            A = F.softmax(torch.mm(u, F.normalize(V, dim=1)), dim=1)
+
+        M = torch.mm(A, x) # 1xL
+        return M, A
+
+def merge_attention(attention_vector):
+    """
+    merge multiple scores into one
+    :param scores: N x K, score vector of dim K
+    :return: 1 x N, all scores are merged
+    """
+    score_vector = F.softmax(attention_vector, 0)
+    target = torch.sum(torch.mul(score_vector, attention_vector), dim=0, keepdim=True)
+    score = F.softmax(torch.mm(target, F.normalize(attention_vector, 1).t()), 1).view(1, -1)
+    return score
+
+
+def column_random_pick(attention_vector, prob=0.8):
+    """
+    :param attention_vector:
+    :return:
+    """
+    K = attention_vector.shape[1]
+    if K < 2:
+        return attention_vector
+    else:
+        pick = np.random.uniform(low=0, high=1, size=K)
+        column_id = []
+        for i in range(K):
+            if pick[i] < prob:
+                column_id.append(i)
+
+        if len(column_id) < 1:
+            column_id.append(0)
+
+        pick_tensor = torch.LongTensor(column_id).cuda()
+        return attention_vector[:, pick_tensor]
+
+
+def discriminator_score(features, labels, thr=0.5):
+    """
+    get the binary discriminator error
+    :param features: N x K tensor
+    :param labels: N x 1 tensor
+    :return:
+    """
+
+    if max(labels) == 0:
+        return 0, 0
+
+    N, K = features.shape
+    x = features.detach()
+    y = torch.tensor(labels).float().cuda()
+    logistic = nn.Sequential(nn.Linear(K, 1), nn.Sigmoid()).cuda()
+    loss_func = nn.BCELoss()
+
+    def loss_and_pred(x):
+        y_score = logistic(x)
+        loss = loss_func(y_score, y)
+        return loss.cpu(), y_score.cpu().data.numpy().reshape(-1)
+
+    opt = torch.optim.Adam(logistic.parameters())
+    for i in range(10):
+        opt.zero_grad()
+
+        loss, y_score = loss_and_pred(x)
+
+        loss.backward()
+        opt.step()
+
+    loss, y_score = loss_and_pred(x)
+
+    loss_val = loss.cpu().data.numpy()
+
+    acc_val = metrics.precision_score(labels, y_score>thr)
+    return loss_val, acc_val
+
+class MultiDimAttention(nn.Module):
+    def __init__(self, D=128, K=1, L=512):
+        """
+        attention model for multi instance learning
+        :param D: the dimension of embedding that one instance will be transformed into
+        :param K: the number of classification planes
+        :param L: the dimension of the latent feature vector
+        """
+        super(MultiDimAttention, self).__init__()
+        self.D = D
+        self.K = K
+        self.L = L
+        self.attention_emb = nn.Sequential(               # input N x L
+            nn.Linear(self.L, self.D), nn.Tanh()          # Embedding N x D
+        )
+        self.attention_trans = nn.Linear(self.D, self.K)  # scores N x K
+
+    def forward(self, x):
+        """
+        forward feed network
+        :param x: the bags of size N where each instance feature is a vector of length L
+        :return: the bag representation, a vector of length L
+        """
+        E = self.attention_emb(x)           # Transform the input feature vector to embedding vector of size D
+        V = self.attention_trans(E)         # attention vector N x K for each instance
+        if self.training:
+            V = column_random_pick(V)
+        A = merge_attention(V)
+        M = torch.mm(A, x) # 1xL
+        return M, A
+
+
+class MultiLayerAttention(nn.Module):
+    def __init__(self, D=128, K=1, L=500):
+        """
+        attention model for multi instance learning
+        :param D: the dimension of embedding that one instance will be transformed into
+        :param K: the number of classification planes
+        :param L: the dimension of the latent feature vector
+        """
+        super(MultiLayerAttention, self).__init__()
+        self.D = D
+        self.K = K
+        self.L = L
+        self.attention_emb = nn.Sequential(  # input N x L
+            nn.Linear(self.L, self.D), nn.Tanh()  # Embedding N x D
+        )
+        self.attention_trans = nn.Sequential(
+            nn.Linear(self.D, self.K),
+            nn.Tanh(),
+            nn.Linear(self.K, 1),
+        )  # scores N x 1
+
+    def forward(self, x):
+        """
+        forward feed network
+        :param x: the bags of size N where each instance feature is a vector of length L
+        :return: the bag representation, a vector of length L
+        """
+        E = self.attention_emb(x)  # Transform the input feature vector to embedding vector of size D
+        V = self.attention_trans(E)  # attention vector N x K for each instance
+        A = F.softmax(V, 0).view(1, -1)
+        M = torch.mm(A, x)  # 1xL
+        return M, A
+
+
+class Classifier(nn.Module):
+    def __init__(self, L=500, thr=0.5):
+        super(Classifier, self).__init__()
+        self.L = L
+        self.thr = thr
+        self.classifier = nn.Sequential(
+            nn.Linear(self.L, 1),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        Y_prob = self.classifier(x)
+        Y_hat = torch.ge(Y_prob, self.thr).float()
+        return Y_prob, Y_hat
+
+
+class MNISTbagAAtention(nn.Module):
+    def __init__(self, attention_model, D=128, K=1, L=512, thr=0.5):
+        self.D = D
+        self.K = K
+        self.L = L
+        self.thr = thr
+        super(MNISTbagAAtention, self).__init__()
+        self.feature_extractor = Encoder(L=L)
+        self.attention_model = attention_model(D=D, K=K, L=L)
+        self.classifier = Classifier(L=L, thr=thr)
+
+    def forward(self, x):
+        feature = self.feature_extractor(x)
+        bag_feature, scores = self.attention_model(feature)
+        Y_prob, Y_hat = self.classifier(bag_feature)
+        return Y_prob, Y_hat, scores
+
+    # AUXILIARY METHODS
+    def calculate_classification_error(self, X, Y):
+        Y = Y.float()
+        Y_prob, Y_hat, _ = self.forward(X)
+        error = 1. - Y_hat.eq(Y).cpu().float().mean().data
+
+        return error, Y_prob, Y_hat
+
+    def calculate_objective(self, X, Y):
+        Y = Y.float()
+        Y_prob, _, A = self.forward(X)
+        Y_prob = torch.clamp(Y_prob, min=1e-5, max=1. - 1e-5)
+        neg_log_likelihood = -1. * (Y * torch.log(Y_prob) + (1. - Y) * torch.log(1. - Y_prob))  # negative log bernoulli
+        # reg_weights =  F.normalize(self.attention_model.attention_trans.weight, dim=1)
+        # mat = torch.mm(reg_weights, reg_weights.t())
+        # reg = torch.norm(mat - torch.diag(torch.diag(mat)) - 0.1)
+        mat = None
+        return neg_log_likelihood, A, mat

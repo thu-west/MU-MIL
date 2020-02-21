@@ -1,0 +1,17 @@
+.idea
+.vscode
+*.aux
+*.log
+*.out
+*.synctex.gz
+*.bbl
+*.blg
+*.doc
+*.zip
+*.bst
+*.pdf
+**/*~*
+**.pyc
+*.pk
+*.png
+*.ipynb
