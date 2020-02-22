@@ -52,3 +52,11 @@ Parameter | Options | Usage
 --dim | | Sepcify the dimension for the attention
 
 Some other settable parameters could be found in the `src/main.py` file.
+
+If you want to refer to our work, please cite our paper as:
+@article{
+  title={Instance Explainable Multi-Instance Learning for ROI of Various Data},
+  author={Xu Zhao, Zihao Wang, Yong Zhang and Chunxiao Xing},
+  boottitle={DASFAA}
+  year={2020}
+}
