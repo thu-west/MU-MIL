@@ -53,10 +53,21 @@ Parameter | Options | Usage
 
 Some other settable parameters could be found in the `src/main.py` file.
 
+
+Citation
+--------
+
+
 If you want to refer to our work, please cite our paper as:
+<br>
 @article{
+<br>
   title={Instance Explainable Multi-Instance Learning for ROI of Various Data},
+<br>
   author={Xu Zhao, Zihao Wang, Yong Zhang and Chunxiao Xing},
+<br>
   boottitle={DASFAA}
+<br>
   year={2020}
+<br>
 }
