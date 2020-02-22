@@ -63,7 +63,7 @@ If you want to refer to our work, please cite our paper as:
 @article{
   title={Instance Explainable Multi-Instance Learning for ROI of Various Data},
   author={Xu Zhao, Zihao Wang, Yong Zhang and Chunxiao Xing},
-  boottitle={DASFAA},
+  booktitle={DASFAA},
   year={2020},
 }
 ```
